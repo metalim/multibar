@@ -17,10 +17,9 @@ func main() {
 
 	for i := range 1010 {
 		if i%101 == 0 {
-			b3 = mb.NewBar(100, fmt.Sprintf("File %d", i/101+1))
-		} else {
-			b3.Add(1)
+			b3 = mb.NewBar(101, fmt.Sprintf("File %d", i/101+1))
 		}
+		b3.Add(1)
 		b1.Add(1)
 		b2.Add(1)
 		time.Sleep(10 * time.Millisecond)

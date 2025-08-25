@@ -3,7 +3,6 @@ package multibar
 import (
 	"fmt"
 	"strings"
-	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -42,10 +41,10 @@ type MultiBar struct {
 func (m *MultiBar) NewBar(max int64, description string) *Bar {
 	b := &Bar{
 		mb:          m,
+		max:         max,
 		description: description,
 		startedAt:   time.Now(),
 	}
-	b.max.Store(max)
 	m.bars = append(m.bars, b)
 
 	// Update max label length for alignment
@@ -58,10 +57,7 @@ func (m *MultiBar) NewBar(max int64, description string) *Bar {
 func (m *MultiBar) updateMaxLabelLength() {
 	m.maxLabelLength = 0
 	for _, b := range m.bars {
-		desc := b.description
-		if desc == "" {
-			desc = "Working"
-		}
+		desc := b.label()
 		// Calculate max description width (no ANSI codes)
 		labelLength := utf8.RuneCountInString(desc)
 		if labelLength > m.maxLabelLength {
@@ -121,21 +117,16 @@ func (m *MultiBar) render() {
 }
 
 func (m *MultiBar) renderBar(b *Bar) {
-	value := b.value.Load()
-	max := b.max.Load()
+	isError := b.max != Undefined && b.value > b.max
 
-	isFinished := b.finished || (max != Undefined && value == max)
-	isError := max != Undefined && value > max
-
-	description := b.description
-	if description == "" {
-		description = "Working"
-	}
+	description := b.label()
 
 	// Calculate percentage - fixed width 4 characters
 	var percentStr string
-	if max != Undefined {
-		percent := int((value * 100) / max)
+	if b.finished && b.max != Undefined {
+		percentStr = "100%"
+	} else if b.max != Undefined {
+		percent := int((b.value * 100) / b.max)
 		percentStr = fmt.Sprintf("%3d%%", percent) // Fixed width: 3 digits + %
 	} else {
 		percentStr = "    " // Empty space for undefined progress (4 spaces)
@@ -144,27 +135,29 @@ func (m *MultiBar) renderBar(b *Bar) {
 	// Calculate times
 	elapsed := time.Since(b.startedAt)
 	var estimatedStr string
-	if max != Undefined && value > 0 {
+	if b.finished && b.max != Undefined {
+		estimatedStr = formatDuration(elapsed)
+	} else if b.max != Undefined && b.value > 0 {
 		// Estimated total time = elapsed * max / value
-		estimated := time.Duration(float64(elapsed) * float64(max) / float64(value))
+		estimated := time.Duration(float64(elapsed) * float64(b.max) / float64(b.value))
 		estimatedStr = formatDuration(estimated)
 	} else {
 		estimatedStr = "       " // 7 spaces for H:MM:SS placeholder
 	}
 
 	// Ensure minimal width (7 characters like "0:00:00")
-	if len(estimatedStr) < 7 && max > 0 {
+	if len(estimatedStr) < 7 && b.max > 0 {
 		estimatedStr = " " + estimatedStr
 	}
 
 	// Build progress bar
 	barWidth := 30 // Width of the progress bar
-	barStr := m.buildProgressBar(value, max, barWidth, isFinished, isError)
+	barStr := m.buildProgressBar(b.value, b.max, barWidth, b.finished, isError)
 
 	// Format output with proper alignment based on max label length
 	// Build fixed-width label area (description only), spinner printed separately
 	spinner := " "
-	if !isFinished {
+	if !b.finished {
 		spinner = spinners[m.spinnerIndex]
 	}
 
@@ -180,20 +173,20 @@ func (m *MultiBar) renderBar(b *Bar) {
 	switch {
 	case isError:
 		spinnerOut = colorRed + spinner + colorReset
-	case isFinished:
+	case b.finished:
 		spinnerOut = colorGreen + spinner + colorReset
 	default:
 		spinnerOut = spinner
 	}
 
-	fmt.Printf("%s %s %s %s %s",
+	fmt.Printf("%s %s %s %s %s %s",
 		spinnerOut, // spinner (or space)
 		labelOut,   // fixed-width description
 		barStr,     // bar
 		colorMagenta+percentStr+colorReset,
 		colorCyan+estimatedStr+colorReset,
+		colorYellow+formatDuration(elapsed)+colorReset,
 	)
-	fmt.Printf(" %s", colorYellow+formatDuration(elapsed)+colorReset)
 }
 
 func (m *MultiBar) buildProgressBar(value, maxVal int64, width int, isFinished bool, isError bool) string {
@@ -255,18 +248,30 @@ func (m *MultiBar) buildProgressBar(value, maxVal int64, width int, isFinished b
 		fullChars := filledUnits / 8
 		remainder := filledUnits % 8
 
+		if fullChars >= width {
+			fullChars = width
+			remainder = 0
+		}
+
 		// Full filled characters
 		filledStr = strings.Repeat(string(partialBlocks[8]), fullChars)
 
-		// Partial character
-		filledStr += string(partialBlocks[remainder])
+		// Partial character only if there is room
+		extra := 0
+		if remainder > 0 && fullChars < width {
+			filledStr += string(partialBlocks[remainder])
+			extra = 1
+		}
 
 		// Empty characters
-		emptyChars := max(width-fullChars-1, 0)
+		emptyChars := width - fullChars - extra
+		if emptyChars < 0 {
+			emptyChars = 0
+		}
 		emptyStr = strings.Repeat(string(partialBlocks[0]), emptyChars)
 
 		if isError {
-			return colorRed + filledStr + emptyStr
+			return colorRed + filledStr + emptyStr + colorReset
 		}
 		return filledStr + emptyStr
 	}
@@ -274,9 +279,6 @@ func (m *MultiBar) buildProgressBar(value, maxVal int64, width int, isFinished b
 
 func formatDuration(d time.Duration) string {
 	totalSeconds := int64(d.Seconds())
-	if totalSeconds < 0 {
-		totalSeconds = 0
-	}
 	hours := totalSeconds / 3600
 	minutes := (totalSeconds % 3600) / 60
 	seconds := totalSeconds % 60
@@ -284,16 +286,24 @@ func formatDuration(d time.Duration) string {
 }
 
 type Bar struct {
-	mb          *MultiBar
-	value, max  atomic.Int64
-	startedAt   time.Time
-	description string
-	finished    bool
+	mb                   *MultiBar
+	value, max           int64
+	startedAt, updatedAt time.Time
+	description          string
+	finished             bool
+}
+
+func (b *Bar) label() string {
+	if b.description == "" {
+		return "Working"
+	}
+	return b.description
 }
 
 func (b *Bar) Reset() {
-	b.value.Store(0)
+	b.value = 0
 	b.startedAt = time.Now()
+	b.updatedAt = b.startedAt
 	b.mb.render()
 }
 
@@ -304,22 +314,28 @@ func (b *Bar) SetDescription(description string) {
 }
 
 func (b *Bar) SetValue(value int64) {
-	b.value.Store(value)
+	b.value = value
+	b.updatedAt = time.Now()
 	b.mb.render()
 }
 
 func (b *Bar) SetMax(max int64) {
-	b.max.Store(max)
+	b.max = max
 	b.mb.render()
 }
 
 func (b *Bar) Add(n int64) {
-	b.value.Add(n)
+	b.value += n
+	b.finished = b.value == b.max && b.max != Undefined
+	b.updatedAt = time.Now()
 	b.mb.render()
 }
 
 func (b *Bar) Finish() {
-	b.value.Store(b.max.Load())
+	if b.finished {
+		return
+	}
 	b.finished = true
+	b.updatedAt = time.Now()
 	b.mb.render()
 }
