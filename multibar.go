@@ -8,23 +8,23 @@ import (
 	"unicode/utf8"
 )
 
-const (
-	Undefined = -1
-)
-
-// Cell set for empty block, 7-step partials and a full block
-var partialBlocks = []rune{' ', '▏', '▎', '▍', '▌', '▋', '▊', '▉', '█'}
-var spinners = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+const Undefined = -1
 
 // ANSI color codes (sorted by SGR code)
 const (
 	colorReset   = "\033[0m"
+	colorRed     = "\033[31m"
 	colorGreen   = "\033[32m"
 	colorYellow  = "\033[33m"
 	colorMagenta = "\033[35m"
 	colorCyan    = "\033[36m"
 	invertOn     = "\033[7m"
 	invertOff    = "\033[27m"
+)
+
+var (
+	partialBlocks = []rune{' ', '▏', '▎', '▍', '▌', '▋', '▊', '▉', '█'}
+	spinners      = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 )
 
 func New() *MultiBar {
@@ -124,10 +124,9 @@ func (m *MultiBar) renderBar(b *Bar) {
 	value := b.value.Load()
 	max := b.max.Load()
 
-	// Spinner/label prep
-	isGreenBar := b.finished || (max > 0 && value >= max)
+	isFinished := b.finished || (max != Undefined && value == max)
+	isError := max != Undefined && value > max
 
-	// Description - natural length, no fixed width
 	description := b.description
 	if description == "" {
 		description = "Working"
@@ -135,7 +134,7 @@ func (m *MultiBar) renderBar(b *Bar) {
 
 	// Calculate percentage - fixed width 4 characters
 	var percentStr string
-	if max > 0 {
+	if max != Undefined {
 		percent := int((value * 100) / max)
 		percentStr = fmt.Sprintf("%3d%%", percent) // Fixed width: 3 digits + %
 	} else {
@@ -145,7 +144,7 @@ func (m *MultiBar) renderBar(b *Bar) {
 	// Calculate times
 	elapsed := time.Since(b.startedAt)
 	var estimatedStr string
-	if max > 0 && value > 0 {
+	if max != Undefined && value > 0 {
 		// Estimated total time = elapsed * max / value
 		estimated := time.Duration(float64(elapsed) * float64(max) / float64(value))
 		estimatedStr = formatDuration(estimated)
@@ -160,18 +159,16 @@ func (m *MultiBar) renderBar(b *Bar) {
 
 	// Build progress bar
 	barWidth := 30 // Width of the progress bar
-	barStr := m.buildProgressBar(value, max, barWidth, b.finished)
+	barStr := m.buildProgressBar(value, max, barWidth, isFinished, isError)
 
 	// Format output with proper alignment based on max label length
 	// Build fixed-width label area (description only), spinner printed separately
 	spinner := " "
-	if !isGreenBar {
+	if !isFinished {
 		spinner = spinners[m.spinnerIndex]
 	}
+
 	descLen := utf8.RuneCountInString(description)
-	if descLen > m.maxLabelLength {
-		m.maxLabelLength = descLen
-	}
 	pad := m.maxLabelLength - descLen
 	if pad < 0 {
 		pad = 0
@@ -179,10 +176,16 @@ func (m *MultiBar) renderBar(b *Bar) {
 	labelOut := description + strings.Repeat(" ", pad)
 
 	// Print line: spinner, space, label, bar, percent, estimated, elapsed
-	spinnerOut := spinner
-	if !isGreenBar {
+	var spinnerOut string
+	switch {
+	case isError:
+		spinnerOut = colorRed + spinner + colorReset
+	case isFinished:
 		spinnerOut = colorGreen + spinner + colorReset
+	default:
+		spinnerOut = spinner
 	}
+
 	fmt.Printf("%s %s %s %s %s",
 		spinnerOut, // spinner (or space)
 		labelOut,   // fixed-width description
@@ -193,9 +196,9 @@ func (m *MultiBar) renderBar(b *Bar) {
 	fmt.Printf(" %s", colorYellow+formatDuration(elapsed)+colorReset)
 }
 
-func (m *MultiBar) buildProgressBar(value, max int64, width int, finished bool) string {
-	if max <= 0 {
-		if finished {
+func (m *MultiBar) buildProgressBar(value, maxVal int64, width int, isFinished bool, isError bool) string {
+	if maxVal == Undefined {
+		if isFinished {
 			// Finished undefined: full green bar
 			barStr := strings.Repeat(string(partialBlocks[8]), width)
 			return colorGreen + barStr + colorReset
@@ -236,16 +239,10 @@ func (m *MultiBar) buildProgressBar(value, max int64, width int, finished bool) 
 
 	// Calculate filled portion in terms of total units (width * 8) using integer math
 	totalUnits := width * 8
-	filledUnits := int((value * int64(totalUnits)) / max)
-	if filledUnits > totalUnits {
-		filledUnits = totalUnits
-	}
-
-	// Check if bar is completed (100%)
-	isCompleted := finished || (max > 0 && value >= max)
+	filledUnits := int((value * int64(totalUnits)) / maxVal)
 
 	var barStr string
-	if isCompleted {
+	if isFinished {
 		// Completed bar - green
 		barStr = strings.Repeat(string(partialBlocks[8]), width)
 		return colorGreen + barStr + colorReset
@@ -265,9 +262,12 @@ func (m *MultiBar) buildProgressBar(value, max int64, width int, finished bool) 
 		filledStr += string(partialBlocks[remainder])
 
 		// Empty characters
-		emptyChars := width - fullChars - 1
+		emptyChars := max(width-fullChars-1, 0)
 		emptyStr = strings.Repeat(string(partialBlocks[0]), emptyChars)
 
+		if isError {
+			return colorRed + filledStr + emptyStr
+		}
 		return filledStr + emptyStr
 	}
 }
@@ -299,6 +299,7 @@ func (b *Bar) Reset() {
 
 func (b *Bar) SetDescription(description string) {
 	b.description = description
+	b.mb.updateMaxLabelLength()
 	b.mb.render()
 }
 

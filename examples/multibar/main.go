@@ -9,7 +9,7 @@ import (
 
 func main() {
 	mb := multibar.New()
-	b1 := mb.NewBar(1000, "Files")
+	b1 := mb.NewBar(1010, "Files")
 	b2 := mb.NewBar(multibar.Undefined, "Working")
 	var b3 *multibar.Bar
 
@@ -17,11 +17,12 @@ func main() {
 
 	for i := range 1010 {
 		if i%101 == 0 {
-			b3 = mb.NewBar(100, fmt.Sprintf("File %d", 1+i/101))
+			b3 = mb.NewBar(100, fmt.Sprintf("File %d", i/101+1))
+		} else {
+			b3.Add(1)
 		}
 		b1.Add(1)
 		b2.Add(1)
-		b3.Add(1)
 		time.Sleep(10 * time.Millisecond)
 	}
 	b2.Finish()
