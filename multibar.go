@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -13,7 +14,7 @@ const (
 
 // Cell set for empty block, 7-step partials and a full block
 var partialBlocks = []rune{' ', '▏', '▎', '▍', '▌', '▋', '▊', '▉', '█'}
-var spinners = []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'}
+var spinners = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 // ANSI color codes (sorted by SGR code)
 const (
@@ -35,6 +36,7 @@ type MultiBar struct {
 	spinnerIndex   int
 	lastRender     time.Time
 	maxLabelLength int
+	renderedLines  int
 }
 
 func (m *MultiBar) NewBar(max int64, description string) *Bar {
@@ -60,10 +62,8 @@ func (m *MultiBar) updateMaxLabelLength() {
 		if desc == "" {
 			desc = "Working"
 		}
-		// Calculate length of full label: spinner + space + description (no ANSI codes here)
-		spinner := string(spinners[0]) // use any spinner for calculation
-		fullLabel := spinner + " " + desc
-		labelLength := len(fullLabel) // simple length, no ANSI codes
+		// Calculate max description width (no ANSI codes)
+		labelLength := utf8.RuneCountInString(desc)
 		if labelLength > m.maxLabelLength {
 			m.maxLabelLength = labelLength
 		}
@@ -105,9 +105,9 @@ func (m *MultiBar) render() {
 		m.lastRender = now
 	}
 
-	// Move cursor up by number of bars (if not first render)
-	if len(m.bars) > 0 {
-		fmt.Printf("\033[%dA", len(m.bars))
+	// Move cursor up by number of lines previously rendered (skip on first render)
+	if m.renderedLines > 0 {
+		fmt.Printf("\033[%dA", m.renderedLines)
 	}
 
 	// Render each bar
@@ -115,17 +115,17 @@ func (m *MultiBar) render() {
 		m.renderBar(bar)
 		fmt.Println()
 	}
+
+	// Update rendered lines count
+	m.renderedLines = len(m.bars)
 }
 
 func (m *MultiBar) renderBar(b *Bar) {
 	value := b.value.Load()
 	max := b.max.Load()
 
-	// Spinner - only show for unfinished bars
-	spinner := " "
-	if !b.finished {
-		spinner = string(spinners[m.spinnerIndex])
-	}
+	// Spinner/label prep
+	isGreenBar := b.finished || (max > 0 && value >= max)
 
 	// Description - natural length, no fixed width
 	description := b.description
@@ -134,11 +134,10 @@ func (m *MultiBar) renderBar(b *Bar) {
 	}
 
 	// Calculate percentage - fixed width 4 characters
-	var percentage float64
 	var percentStr string
 	if max > 0 {
-		percentage = float64(value) / float64(max) * 100
-		percentStr = fmt.Sprintf("%3.0f%%", percentage) // Fixed width: 3 digits + %
+		percent := int((value * 100) / max)
+		percentStr = fmt.Sprintf("%3d%%", percent) // Fixed width: 3 digits + %
 	} else {
 		percentStr = "    " // Empty space for undefined progress (4 spaces)
 	}
@@ -151,11 +150,11 @@ func (m *MultiBar) renderBar(b *Bar) {
 		estimated := time.Duration(float64(elapsed) * float64(max) / float64(value))
 		estimatedStr = formatDuration(estimated)
 	} else {
-		estimatedStr = "     " // Empty space for undefined progress (5 spaces)
+		estimatedStr = "       " // 7 spaces for H:MM:SS placeholder
 	}
 
-	// Ensure minimal width (5 characters like "0:00")
-	if len(estimatedStr) < 5 && max > 0 {
+	// Ensure minimal width (7 characters like "0:00:00")
+	if len(estimatedStr) < 7 && max > 0 {
 		estimatedStr = " " + estimatedStr
 	}
 
@@ -164,26 +163,43 @@ func (m *MultiBar) renderBar(b *Bar) {
 	barStr := m.buildProgressBar(value, max, barWidth, b.finished)
 
 	// Format output with proper alignment based on max label length
-	// Add space between spinner and description
-	currentLabel := fmt.Sprintf("%s %s", colorGreen+spinner+colorReset, description)
-	// Calculate label length and add padding (with one space after longest label)
-	// Create clean label without ANSI codes for length calculation
-	cleanLabel := spinner + " " + description
-	labelLength := len(cleanLabel)
-	paddingLength := m.maxLabelLength - labelLength + 1 // +1 for one space
-	padding := strings.Repeat(" ", paddingLength)
+	// Build fixed-width label area (description only), spinner printed separately
+	spinner := " "
+	if !isGreenBar {
+		spinner = spinners[m.spinnerIndex]
+	}
+	descLen := utf8.RuneCountInString(description)
+	if descLen > m.maxLabelLength {
+		m.maxLabelLength = descLen
+	}
+	pad := m.maxLabelLength - descLen
+	if pad < 0 {
+		pad = 0
+	}
+	labelOut := description + strings.Repeat(" ", pad)
 
-	fmt.Printf("%s%s%s %s %s %s",
-		currentLabel,                       // spinner + description
-		padding,                            // padding to align bars
-		barStr,                             // progress bar
-		colorMagenta+percentStr+colorReset, // color5 - percentage
-		colorCyan+estimatedStr+colorReset,  // color4 - estimated total time (cyan)
-		colorYellow+formatDuration(elapsed)+colorReset) // color3 - elapsed time
+	// Print line: spinner, space, label, bar, percent, estimated, elapsed
+	spinnerOut := spinner
+	if !isGreenBar {
+		spinnerOut = colorGreen + spinner + colorReset
+	}
+	fmt.Printf("%s %s %s %s %s",
+		spinnerOut, // spinner (or space)
+		labelOut,   // fixed-width description
+		barStr,     // bar
+		colorMagenta+percentStr+colorReset,
+		colorCyan+estimatedStr+colorReset,
+	)
+	fmt.Printf(" %s", colorYellow+formatDuration(elapsed)+colorReset)
 }
 
 func (m *MultiBar) buildProgressBar(value, max int64, width int, finished bool) string {
 	if max <= 0 {
+		if finished {
+			// Finished undefined: full green bar
+			barStr := strings.Repeat(string(partialBlocks[8]), width)
+			return colorGreen + barStr + colorReset
+		}
 		// Indeterminate progress: tri-symbol marker advances by 1 gradation per unit
 		totalUnits := width * 8
 		if totalUnits <= 0 {
@@ -218,9 +234,9 @@ func (m *MultiBar) buildProgressBar(value, max int64, width int, finished bool) 
 		return b.String()
 	}
 
-	// Calculate filled portion in terms of total units (width * 8)
+	// Calculate filled portion in terms of total units (width * 8) using integer math
 	totalUnits := width * 8
-	filledUnits := int(float64(value) / float64(max) * float64(totalUnits))
+	filledUnits := int((value * int64(totalUnits)) / max)
 	if filledUnits > totalUnits {
 		filledUnits = totalUnits
 	}
@@ -257,14 +273,14 @@ func (m *MultiBar) buildProgressBar(value, max int64, width int, finished bool) 
 }
 
 func formatDuration(d time.Duration) string {
-	hours := int(d.Hours())
-	minutes := int(d.Minutes()) % 60
-	seconds := int(d.Seconds()) % 60
-
-	if hours > 0 {
-		return fmt.Sprintf("%d:%02d:%02d", hours, minutes, seconds)
+	totalSeconds := int64(d.Seconds())
+	if totalSeconds < 0 {
+		totalSeconds = 0
 	}
-	return fmt.Sprintf("%d:%02d", minutes, seconds)
+	hours := totalSeconds / 3600
+	minutes := (totalSeconds % 3600) / 60
+	seconds := totalSeconds % 60
+	return fmt.Sprintf("%d:%02d:%02d", hours, minutes, seconds)
 }
 
 type Bar struct {

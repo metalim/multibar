@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/metalim/multibar"
@@ -9,19 +10,19 @@ import (
 func main() {
 	mb := multibar.New()
 	b1 := mb.NewBar(1000, "Files")
-	b2 := mb.NewBar(100, "File")
-	b3 := mb.NewBar(multibar.Undefined, "Working")
+	b2 := mb.NewBar(multibar.Undefined, "Working")
+	var b3 *multibar.Bar
 
 	mb.Start()
 
 	for i := range 1010 {
+		if i%101 == 0 {
+			b3 = mb.NewBar(100, fmt.Sprintf("File %d", 1+i/101))
+		}
 		b1.Add(1)
 		b2.Add(1)
 		b3.Add(1)
-		if i%101 == 0 {
-			b2.Reset()
-		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
-	mb.FinishAll()
+	b2.Finish()
 }
