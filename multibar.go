@@ -339,3 +339,11 @@ func (b *Bar) Finish() {
 	b.updatedAt = time.Now()
 	b.mb.render()
 }
+
+func (b *Bar) Value() int64 {
+	return b.value
+}
+
+func (b *Bar) Max() int64 {
+	return b.max
+}
