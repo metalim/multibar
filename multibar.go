@@ -2,6 +2,8 @@ package multibar
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -26,8 +28,22 @@ var (
 	spinners      = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 )
 
-func New() *MultiBar {
-	return &MultiBar{}
+type Option func(*MultiBar)
+
+func WithWriter(w io.Writer) Option {
+	return func(m *MultiBar) {
+		m.writer = w
+	}
+}
+
+func New(opts ...Option) *MultiBar {
+	m := &MultiBar{
+		writer: os.Stdout,
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 type MultiBar struct {
@@ -36,6 +52,7 @@ type MultiBar struct {
 	lastRender     time.Time
 	maxLabelLength int
 	renderedLines  int
+	writer         io.Writer
 }
 
 func (m *MultiBar) NewBar(max int64, description string) *Bar {
@@ -93,23 +110,27 @@ func (m *MultiBar) FinishAll() {
 	⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏
 */
 
+const (
+	spinnerRenderInterval = 100 * time.Millisecond
+)
+
 func (m *MultiBar) render() {
 	// Update spinner index based on time
 	now := time.Now()
-	if m.lastRender.IsZero() || now.Sub(m.lastRender) >= 100*time.Millisecond {
+	if m.lastRender.IsZero() || now.Sub(m.lastRender) >= spinnerRenderInterval {
 		m.spinnerIndex = (m.spinnerIndex + 1) % len(spinners)
 		m.lastRender = now
 	}
 
 	// Move cursor up by number of lines previously rendered (skip on first render)
 	if m.renderedLines > 0 {
-		fmt.Printf("\033[%dA", m.renderedLines)
+		fmt.Fprintf(m.writer, "\033[%dA", m.renderedLines)
 	}
 
 	// Render each bar
 	for _, bar := range m.bars {
 		m.renderBar(bar)
-		fmt.Println()
+		fmt.Fprintln(m.writer)
 	}
 
 	// Update rendered lines count
@@ -179,7 +200,7 @@ func (m *MultiBar) renderBar(b *Bar) {
 		spinnerOut = spinner
 	}
 
-	fmt.Printf("%s %s %s %s %s %s",
+	fmt.Fprintf(m.writer, "%s %s %s %s %s %s",
 		spinnerOut, // spinner (or space)
 		labelOut,   // fixed-width description
 		barStr,     // bar
@@ -283,67 +304,4 @@ func formatDuration(d time.Duration) string {
 	minutes := (totalSeconds % 3600) / 60
 	seconds := totalSeconds % 60
 	return fmt.Sprintf("%d:%02d:%02d", hours, minutes, seconds)
-}
-
-type Bar struct {
-	mb                   *MultiBar
-	value, max           int64
-	startedAt, updatedAt time.Time
-	description          string
-	finished             bool
-}
-
-func (b *Bar) label() string {
-	if b.description == "" {
-		return "Working"
-	}
-	return b.description
-}
-
-func (b *Bar) Reset() {
-	b.value = 0
-	b.startedAt = time.Now()
-	b.updatedAt = b.startedAt
-	b.mb.render()
-}
-
-func (b *Bar) SetDescription(description string) {
-	b.description = description
-	b.mb.updateMaxLabelLength()
-	b.mb.render()
-}
-
-func (b *Bar) SetValue(value int64) {
-	b.value = value
-	b.updatedAt = time.Now()
-	b.mb.render()
-}
-
-func (b *Bar) SetMax(max int64) {
-	b.max = max
-	b.mb.render()
-}
-
-func (b *Bar) Add(n int64) {
-	b.value += n
-	b.finished = b.value == b.max && b.max != Undefined
-	b.updatedAt = time.Now()
-	b.mb.render()
-}
-
-func (b *Bar) Finish() {
-	if b.finished {
-		return
-	}
-	b.finished = true
-	b.updatedAt = time.Now()
-	b.mb.render()
-}
-
-func (b *Bar) Value() int64 {
-	return b.value
-}
-
-func (b *Bar) Max() int64 {
-	return b.max
 }

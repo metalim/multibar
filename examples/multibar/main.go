@@ -34,6 +34,7 @@ func main() {
 			fileBar.Add(1)
 			time.Sleep(10 * time.Millisecond)
 		}
+		// bars automatically finish when max is reached
 		totalBar.Add(1)
 		totalBar.SetDescription(fmt.Sprintf("Files (%d/%d)", totalBar.Value(), totalBar.Max()))
 	}
