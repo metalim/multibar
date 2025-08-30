@@ -117,6 +117,7 @@ func (m *MultiBar) Start() {
 
 const (
 	spinnerRenderInterval = 100 * time.Millisecond
+	barRenderInterval     = 10 * time.Millisecond
 )
 
 func (m *MultiBar) render() {
@@ -126,10 +127,14 @@ func (m *MultiBar) render() {
 
 	m.mu.Lock()
 	now := time.Now()
+	if !m.lastRender.IsZero() && now.Sub(m.lastRender) < barRenderInterval {
+		m.mu.Unlock()
+		return
+	}
 	if m.lastRender.IsZero() || now.Sub(m.lastRender) >= spinnerRenderInterval {
 		m.spinnerIndex = (m.spinnerIndex + 1) % len(spinners)
-		m.lastRender = now
 	}
+	m.lastRender = now
 	moveUp := m.renderedLines > 0
 	upLines := m.renderedLines
 	writer := m.writer
