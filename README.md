@@ -1,4 +1,6 @@
-# multibar
+# Multibar
+
+> Note: This entire codebase was vibe-coded.
 
 Lightweight terminal progress bars with multi-bar support and thread-safe updates.
 
