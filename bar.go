@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -19,6 +20,7 @@ type Bar struct {
 	startedAt, updatedAt time.Time
 	description          string
 	finished             bool
+	mu                   sync.Mutex
 }
 
 type multiBarInterface interface {
@@ -27,63 +29,89 @@ type multiBarInterface interface {
 }
 
 func (b *Bar) label() string {
-	if b.description == "" {
+	b.mu.Lock()
+	d := b.description
+	b.mu.Unlock()
+	if d == "" {
 		return "Working"
 	}
-	return b.description
+	return d
 }
 
 func (b *Bar) Reset() {
+	b.mu.Lock()
 	b.value = 0
 	b.startedAt = time.Now()
 	b.updatedAt = b.startedAt
+	b.mu.Unlock()
 	b.mb.render()
 }
 
 func (b *Bar) SetDescription(description string) {
+	b.mu.Lock()
 	b.description = description
+	b.mu.Unlock()
 	b.mb.updateMaxLabelLength()
 	b.mb.render()
 }
 
 func (b *Bar) SetValue(value int64) {
+	b.mu.Lock()
 	b.value = value
 	b.updatedAt = time.Now()
+	b.mu.Unlock()
 	b.mb.render()
 }
 
 func (b *Bar) SetMax(max int64) {
+	b.mu.Lock()
 	b.max = max
+	b.mu.Unlock()
 	b.mb.render()
 }
 
 func (b *Bar) Add(n int64) {
+	b.mu.Lock()
 	b.value += n
 	b.finished = b.value == b.max && b.max != Undefined
 	b.updatedAt = time.Now()
+	b.mu.Unlock()
 	b.mb.render()
 }
 
 func (b *Bar) Finish() {
+	b.mu.Lock()
 	if b.finished {
+		b.mu.Unlock()
 		return
 	}
 	b.updatedAt = time.Now()
 	b.finished = true
+	b.mu.Unlock()
 	b.mb.render()
 }
 
 func (b *Bar) render(w io.Writer, spinner string, maxLabelLength int) {
+	b.mu.Lock()
 	isError := b.max != Undefined && b.value > b.max
+	description := b.description
+	value := b.value
+	maxVal := b.max
+	finished := b.finished
+	startedAt := b.startedAt
+	updatedAt := b.updatedAt
+	b.mu.Unlock()
 
-	description := b.label()
+	if description == "" {
+		description = "Working"
+	}
 
 	// Calculate percentage - fixed width 4 characters
 	var percentStr string
-	if b.finished && b.max != Undefined {
+	if finished && maxVal != Undefined {
 		percentStr = "100%"
-	} else if b.max != Undefined {
-		percent := int((b.value * 100) / b.max)
+	} else if maxVal != Undefined {
+		percent := int((value * 100) / maxVal)
 		percentStr = fmt.Sprintf("%3d%%", percent) // Fixed width: 3 digits + %
 	} else {
 		percentStr = "    " // Empty space for undefined progress (4 spaces)
@@ -91,38 +119,38 @@ func (b *Bar) render(w io.Writer, spinner string, maxLabelLength int) {
 
 	// Calculate times
 	var elapsed time.Duration
-	if b.finished {
-		if !b.updatedAt.IsZero() {
-			elapsed = b.updatedAt.Sub(b.startedAt)
+	if finished {
+		if !updatedAt.IsZero() {
+			elapsed = updatedAt.Sub(startedAt)
 		} else {
-			elapsed = time.Since(b.startedAt)
+			elapsed = time.Since(startedAt)
 		}
 	} else {
-		elapsed = time.Since(b.startedAt)
+		elapsed = time.Since(startedAt)
 	}
 	var estimatedStr string
-	if b.finished {
+	if finished {
 		estimatedStr = "       "
-	} else if b.max != Undefined && b.value > 0 {
+	} else if maxVal != Undefined && value > 0 {
 		// Estimated total time = elapsed * max / value
-		estimated := time.Duration(float64(elapsed) * float64(b.max) / float64(b.value))
+		estimated := time.Duration(float64(elapsed) * float64(maxVal) / float64(value))
 		estimatedStr = formatDuration(estimated)
 	} else {
 		estimatedStr = "       " // 7 spaces for H:MM:SS placeholder
 	}
 
 	// Ensure minimal width (7 characters like "0:00:00")
-	if len(estimatedStr) < 7 && b.max > 0 {
+	if len(estimatedStr) < 7 && maxVal > 0 {
 		estimatedStr = " " + estimatedStr
 	}
 
 	// Build progress bar
 	barWidth := 30 // Width of the progress bar
-	barStr := b.buildProgressBar(b.value, b.max, barWidth, b.finished, isError)
+	barStr := b.buildProgressBar(value, maxVal, barWidth, finished, isError)
 
 	// Format output with proper alignment based on max label length
 	// Build fixed-width label area (description only), spinner printed separately
-	if b.finished {
+	if finished {
 		spinner = " "
 	}
 
@@ -138,7 +166,7 @@ func (b *Bar) render(w io.Writer, spinner string, maxLabelLength int) {
 	switch {
 	case isError:
 		spinnerOut = colorRed + spinner + colorReset
-	case b.finished:
+	case finished:
 		spinnerOut = colorGreen + spinner + colorReset
 	default:
 		spinnerOut = spinner
@@ -243,11 +271,17 @@ func (b *Bar) buildProgressBar(value, maxVal int64, width int, isFinished bool, 
 }
 
 func (b *Bar) Value() int64 {
-	return b.value
+	b.mu.Lock()
+	v := b.value
+	b.mu.Unlock()
+	return v
 }
 
 func (b *Bar) Max() int64 {
-	return b.max
+	b.mu.Lock()
+	m := b.max
+	b.mu.Unlock()
+	return m
 }
 
 func formatDuration(d time.Duration) string {

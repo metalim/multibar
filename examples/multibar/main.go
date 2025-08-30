@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/metalim/multibar"
@@ -23,7 +24,7 @@ var demoFiles = []File{
 func main() {
 	mb := multibar.New()
 	workBar := mb.NewBar(multibar.Undefined, "Working")
-	filesBar := mb.NewBar(len(demoFiles), fmt.Sprintf("Files (0/%d)", len(demoFiles)))
+	workersBar := mb.NewBar(len(demoFiles), fmt.Sprintf("Workers (0/%d)", len(demoFiles)))
 	var totalSize int64
 	for _, file := range demoFiles {
 		totalSize += file.Size
@@ -32,18 +33,24 @@ func main() {
 
 	mb.Start()
 
+	var wg sync.WaitGroup
 	for _, file := range demoFiles {
 		fileBar := mb.NewBar64(file.Size, file.Name)
-		for j := 0; j < int(file.Size); j++ {
-			workBar.Add(1)
-			bytesBar.Add(1)
-			fileBar.Add(1)
-			time.Sleep(10 * time.Millisecond)
-		}
-		// bars automatically finish when max is reached
-		filesBar.Add(1)
-		filesBar.SetDescription(fmt.Sprintf("Files (%d/%d)", filesBar.Value(), filesBar.Max()))
+		wg.Add(1)
+		go func(b *multibar.Bar, f File) {
+			for j := 0; j < int(file.Size); j++ {
+				workBar.Add(1)
+				bytesBar.Add(1)
+				b.Add(1)
+				time.Sleep(10 * time.Millisecond)
+			}
+			// bars automatically finish when max is reached
+			workersBar.Add(1)
+			workersBar.SetDescription(fmt.Sprintf("Workers (%d/%d)", workersBar.Value(), workersBar.Max()))
+			wg.Done()
+		}(fileBar, file)
 	}
+	wg.Wait()
 	// undefined bar has to be finished manually
 	workBar.Finish()
 }

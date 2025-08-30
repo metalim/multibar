@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -20,6 +21,7 @@ const (
 	colorCyan    = "\033[36m"
 	invertOn     = "\033[7m"
 	invertOff    = "\033[27m"
+	upN          = "\033[%dA"
 )
 
 type Option func(*MultiBar)
@@ -47,6 +49,8 @@ type MultiBar struct {
 	maxLabelLength int
 	renderedLines  int
 	writer         io.Writer
+	mu             sync.Mutex
+	renderMu       sync.Mutex
 }
 
 func (m *MultiBar) NewBar(maxValue int, description string) *Bar {
@@ -60,7 +64,9 @@ func (m *MultiBar) NewBar64(maxValue int64, description string) *Bar {
 		description: description,
 		startedAt:   time.Now(),
 	}
+	m.mu.Lock()
 	m.bars = append(m.bars, b)
+	m.mu.Unlock()
 
 	// Update max label length for alignment
 	m.updateMaxLabelLength()
@@ -70,27 +76,27 @@ func (m *MultiBar) NewBar64(maxValue int64, description string) *Bar {
 
 // updateMaxLabelLength recalculates the maximum label length for proper alignment
 func (m *MultiBar) updateMaxLabelLength() {
-	m.maxLabelLength = 0
-	for _, b := range m.bars {
+	m.mu.Lock()
+	barsCopy := make([]*Bar, len(m.bars))
+	copy(barsCopy, m.bars)
+	m.mu.Unlock()
+
+	maxLen := 0
+	for _, b := range barsCopy {
 		desc := b.label()
-		// Calculate max description width (no ANSI codes)
 		labelLength := utf8.RuneCountInString(desc)
-		if labelLength > m.maxLabelLength {
-			m.maxLabelLength = labelLength
+		if labelLength > maxLen {
+			maxLen = labelLength
 		}
 	}
+	m.mu.Lock()
+	m.maxLabelLength = maxLen
+	m.mu.Unlock()
 }
 
 // Start should be called after creating all bars to initialize rendering
 func (m *MultiBar) Start() {
 	m.render()
-}
-
-// FinishAll marks all bars as finished. But why?
-func (m *MultiBar) FinishAll() {
-	for _, bar := range m.bars {
-		bar.Finish()
-	}
 }
 
 /*
@@ -113,24 +119,32 @@ const (
 )
 
 func (m *MultiBar) render() {
-	// Update spinner index based on time
+	// Serialize whole render to avoid interleaved output
+	m.renderMu.Lock()
+	defer m.renderMu.Unlock()
+
+	m.mu.Lock()
 	now := time.Now()
 	if m.lastRender.IsZero() || now.Sub(m.lastRender) >= spinnerRenderInterval {
 		m.spinnerIndex = (m.spinnerIndex + 1) % len(spinners)
 		m.lastRender = now
 	}
+	moveUp := m.renderedLines > 0
+	upLines := m.renderedLines
+	writer := m.writer
+	spinnerChar := spinners[m.spinnerIndex]
+	maxLabel := m.maxLabelLength
+	barsCopy := make([]*Bar, len(m.bars))
+	copy(barsCopy, m.bars)
+	m.renderedLines = len(barsCopy)
+	m.mu.Unlock()
 
-	// Move cursor up by number of lines previously rendered (skip on first render)
-	if m.renderedLines > 0 {
-		fmt.Fprintf(m.writer, "\033[%dA", m.renderedLines)
+	if moveUp {
+		fmt.Fprintf(writer, upN, upLines)
 	}
 
-	// Render each bar
-	for _, bar := range m.bars {
-		bar.render(m.writer, spinners[m.spinnerIndex], m.maxLabelLength)
-		fmt.Fprintln(m.writer)
+	for _, bar := range barsCopy {
+		bar.render(writer, spinnerChar, maxLabel)
+		fmt.Fprintln(writer)
 	}
-
-	// Update rendered lines count
-	m.renderedLines = len(m.bars)
 }
