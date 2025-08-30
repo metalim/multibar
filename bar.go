@@ -52,8 +52,8 @@ func (b *Bar) Finish() {
 	if b.finished {
 		return
 	}
-	b.finished = true
 	b.updatedAt = time.Now()
+	b.finished = true
 	b.mb.render()
 }
 

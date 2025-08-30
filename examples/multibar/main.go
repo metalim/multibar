@@ -23,12 +23,12 @@ var demoFiles = []File{
 func main() {
 	mb := multibar.New()
 	workBar := mb.NewBar(multibar.Undefined, "Working")
-	totalBar := mb.NewBar(int64(len(demoFiles)), fmt.Sprintf("Files (0/%d)", len(demoFiles)))
+	totalBar := mb.NewBar(len(demoFiles), fmt.Sprintf("Files (0/%d)", len(demoFiles)))
 
 	mb.Start()
 
 	for _, file := range demoFiles {
-		fileBar := mb.NewBar(file.Size, file.Name)
+		fileBar := mb.NewBar64(file.Size, file.Name)
 		for j := 0; j < int(file.Size); j++ {
 			workBar.Add(1)
 			fileBar.Add(1)

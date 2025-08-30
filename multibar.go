@@ -55,10 +55,14 @@ type MultiBar struct {
 	writer         io.Writer
 }
 
-func (m *MultiBar) NewBar(max int64, description string) *Bar {
+func (m *MultiBar) NewBar(maxValue int, description string) *Bar {
+	return m.NewBar64(int64(maxValue), description)
+}
+
+func (m *MultiBar) NewBar64(maxValue int64, description string) *Bar {
 	b := &Bar{
 		mb:          m,
-		max:         max,
+		max:         maxValue,
 		description: description,
 		startedAt:   time.Now(),
 	}
@@ -88,7 +92,7 @@ func (m *MultiBar) Start() {
 	m.render()
 }
 
-// FinishAll marks all bars as finished
+// FinishAll marks all bars as finished. But why?
 func (m *MultiBar) FinishAll() {
 	for _, bar := range m.bars {
 		bar.Finish()
@@ -129,7 +133,7 @@ func (m *MultiBar) render() {
 
 	// Render each bar
 	for _, bar := range m.bars {
-		m.renderBar(bar)
+		m.renderBar(bar) // TODO: replace with bar.render(m.writer)
 		fmt.Fprintln(m.writer)
 	}
 
@@ -154,10 +158,19 @@ func (m *MultiBar) renderBar(b *Bar) {
 	}
 
 	// Calculate times
-	elapsed := time.Since(b.startedAt)
+	var elapsed time.Duration
+	if b.finished {
+		if !b.updatedAt.IsZero() {
+			elapsed = b.updatedAt.Sub(b.startedAt)
+		} else {
+			elapsed = time.Since(b.startedAt)
+		}
+	} else {
+		elapsed = time.Since(b.startedAt)
+	}
 	var estimatedStr string
-	if b.finished && b.max != Undefined {
-		estimatedStr = formatDuration(elapsed)
+	if b.finished {
+		estimatedStr = "       "
 	} else if b.max != Undefined && b.value > 0 {
 		// Estimated total time = elapsed * max / value
 		estimated := time.Duration(float64(elapsed) * float64(b.max) / float64(b.value))
@@ -205,8 +218,8 @@ func (m *MultiBar) renderBar(b *Bar) {
 		labelOut,   // fixed-width description
 		barStr,     // bar
 		colorMagenta+percentStr+colorReset,
-		colorCyan+estimatedStr+colorReset,
 		colorYellow+formatDuration(elapsed)+colorReset,
+		colorCyan+estimatedStr+colorReset,
 	)
 }
 
