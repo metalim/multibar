@@ -46,6 +46,7 @@ type MultiBar struct {
 	bars           []*Bar
 	spinnerIndex   int
 	lastRender     time.Time
+	spinnerUpdate  time.Time
 	maxLabelLength int
 	renderedLines  int
 	writer         io.Writer
@@ -131,8 +132,9 @@ func (m *MultiBar) render(force ...bool) {
 		m.mu.Unlock()
 		return
 	}
-	if m.lastRender.IsZero() || now.Sub(m.lastRender) >= spinnerRenderInterval {
+	if m.spinnerUpdate.IsZero() || now.Sub(m.spinnerUpdate) >= spinnerRenderInterval {
 		m.spinnerIndex = (m.spinnerIndex + 1) % len(spinners)
+		m.spinnerUpdate = now
 	}
 	m.lastRender = now
 	moveUp := m.renderedLines > 0
