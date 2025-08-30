@@ -23,7 +23,12 @@ var demoFiles = []File{
 func main() {
 	mb := multibar.New()
 	workBar := mb.NewBar(multibar.Undefined, "Working")
-	totalBar := mb.NewBar(len(demoFiles), fmt.Sprintf("Files (0/%d)", len(demoFiles)))
+	filesBar := mb.NewBar(len(demoFiles), fmt.Sprintf("Files (0/%d)", len(demoFiles)))
+	var totalSize int64
+	for _, file := range demoFiles {
+		totalSize += file.Size
+	}
+	bytesBar := mb.NewBar64(totalSize, "Total bytes")
 
 	mb.Start()
 
@@ -31,12 +36,14 @@ func main() {
 		fileBar := mb.NewBar64(file.Size, file.Name)
 		for j := 0; j < int(file.Size); j++ {
 			workBar.Add(1)
+			bytesBar.Add(1)
 			fileBar.Add(1)
 			time.Sleep(10 * time.Millisecond)
 		}
 		// bars automatically finish when max is reached
-		totalBar.Add(1)
-		totalBar.SetDescription(fmt.Sprintf("Files (%d/%d)", totalBar.Value(), totalBar.Max()))
+		filesBar.Add(1)
+		filesBar.SetDescription(fmt.Sprintf("Files (%d/%d)", filesBar.Value(), filesBar.Max()))
 	}
+	// undefined bar has to be finished manually
 	workBar.Finish()
 }
