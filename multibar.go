@@ -120,14 +120,14 @@ const (
 	barRenderInterval     = 10 * time.Millisecond
 )
 
-func (m *MultiBar) render() {
+func (m *MultiBar) render(force ...bool) {
 	// Serialize whole render to avoid interleaved output
 	m.renderMu.Lock()
 	defer m.renderMu.Unlock()
 
 	m.mu.Lock()
 	now := time.Now()
-	if !m.lastRender.IsZero() && now.Sub(m.lastRender) < barRenderInterval {
+	if len(force) > 0 && !force[0] && !m.lastRender.IsZero() && now.Sub(m.lastRender) < barRenderInterval {
 		m.mu.Unlock()
 		return
 	}

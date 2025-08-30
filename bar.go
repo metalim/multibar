@@ -25,7 +25,7 @@ type Bar struct {
 
 type multiBarInterface interface {
 	updateMaxLabelLength()
-	render()
+	render(force ...bool)
 }
 
 func (b *Bar) label() string {
@@ -88,7 +88,7 @@ func (b *Bar) Finish() {
 	b.updatedAt = time.Now()
 	b.finished = true
 	b.mu.Unlock()
-	b.mb.render()
+	b.mb.render(true)
 }
 
 func (b *Bar) render(w io.Writer, spinner string, maxLabelLength int) {
