@@ -101,14 +101,15 @@ func (m *MultiBar) Start() {
 
 /*
 	Output format:
-	<spinner> <description> <bar> <percent> <estimated_total> <elapsed>
+	<spinner> <description> <bar> <percent> <elapsed> <estimated_total>
 
 	Example:
-	⠴ Downloading █████████████▉        69% 0:01:40 0:01:09
+	⠴ Downloading █████████████▉        69% 0:01:09 0:01:40
 
 	Bar:
 	- Working: default terminal color with partial-cell precision
 	- Finished: green
+	- Symbols:  ▏▎▍▌▋▊▉█
 
 	Spinner:
 	⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏
