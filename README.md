@@ -84,7 +84,7 @@ workBar.Finish() // for the undefined bar
 
 ## Output format
 ```
-⠴ <label padded> ███▊..................  69% 0:01:09 0:01:40
+⠴ Downloading █████████████▉        69% 0:01:09 0:01:40
 ```
 - For finished bars the spinner becomes a space, the bar turns green, and ETA is hidden
 
