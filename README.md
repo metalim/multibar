@@ -4,6 +4,8 @@
 
 Lightweight terminal progress bars with multi-bar support and thread-safe updates.
 
+![Demo](./example.gif)
+
 ## Features
 - Multiple progress bars rendered together (multi-bar)
 - Smooth partial block characters (▏▎▍▌▋▊▉█)
