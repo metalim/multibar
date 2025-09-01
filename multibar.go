@@ -70,28 +70,18 @@ func (m *MultiBar) NewBar64(maxValue int64, description string) *Bar {
 	m.mu.Unlock()
 
 	// Update max label length for alignment
-	m.updateMaxLabelLength()
+	m.updateMaxLabelLength(description)
 
 	return b
 }
 
 // updateMaxLabelLength recalculates the maximum label length for proper alignment
-func (m *MultiBar) updateMaxLabelLength() {
+func (m *MultiBar) updateMaxLabelLength(description string) {
+	descLength := utf8.RuneCountInString(description)
 	m.mu.Lock()
-	barsCopy := make([]*Bar, len(m.bars))
-	copy(barsCopy, m.bars)
-	m.mu.Unlock()
-
-	maxLen := 0
-	for _, b := range barsCopy {
-		desc := b.label()
-		labelLength := utf8.RuneCountInString(desc)
-		if labelLength > maxLen {
-			maxLen = labelLength
-		}
+	if descLength > m.maxLabelLength {
+		m.maxLabelLength = descLength
 	}
-	m.mu.Lock()
-	m.maxLabelLength = maxLen
 	m.mu.Unlock()
 }
 

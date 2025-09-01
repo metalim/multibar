@@ -24,18 +24,8 @@ type Bar struct {
 }
 
 type multiBarInterface interface {
-	updateMaxLabelLength()
+	updateMaxLabelLength(description string)
 	render(force ...bool)
-}
-
-func (b *Bar) label() string {
-	b.mu.Lock()
-	d := b.description
-	b.mu.Unlock()
-	if d == "" {
-		return "Working"
-	}
-	return d
 }
 
 func (b *Bar) Reset() {
@@ -51,7 +41,7 @@ func (b *Bar) SetDescription(description string) {
 	b.mu.Lock()
 	b.description = description
 	b.mu.Unlock()
-	b.mb.updateMaxLabelLength()
+	b.mb.updateMaxLabelLength(description)
 	b.mb.render()
 }
 
@@ -101,10 +91,6 @@ func (b *Bar) render(w io.Writer, spinner string, maxLabelLength int) {
 	startedAt := b.startedAt
 	updatedAt := b.updatedAt
 	b.mu.Unlock()
-
-	if description == "" {
-		description = "Working"
-	}
 
 	// Calculate percentage - fixed width 4 characters
 	var percentStr string
