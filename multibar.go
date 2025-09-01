@@ -22,6 +22,8 @@ const (
 	invertOn     = "\033[7m"
 	invertOff    = "\033[27m"
 	upN          = "\033[%dA"
+	cursorOff    = "\033[?25l"
+	cursorOn     = "\033[?25h"
 )
 
 type Option func(*MultiBar)
@@ -137,6 +139,7 @@ func (m *MultiBar) render(force ...bool) {
 	m.renderedLines = len(barsCopy)
 	m.mu.Unlock()
 
+	fmt.Fprint(m.writer, cursorOff)
 	if moveUp {
 		fmt.Fprintf(writer, upN, upLines)
 	}
@@ -145,4 +148,5 @@ func (m *MultiBar) render(force ...bool) {
 		bar.render(writer, spinnerChar, maxLabel)
 		fmt.Fprintln(writer)
 	}
+	fmt.Fprint(m.writer, cursorOn)
 }
