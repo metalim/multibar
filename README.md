@@ -1,5 +1,7 @@
 # Multibar
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/metalim/multibar)
+
 > Note: This entire codebase was vibe-coded.
 
 Lightweight terminal progress bars with multi-bar support and thread-safe updates.
@@ -8,7 +10,7 @@ Lightweight terminal progress bars with multi-bar support and thread-safe update
 
 ## Features
 - Multiple progress bars rendered together (multi-bar)
-- Smooth partial block characters (▏▎▍▌▋▊▉█)
+- Smooth partial block characters (`▏▎▍▌▋▊▉█`)
 - Spinner while bars are running
 - Percentage, elapsed time, and ETA
 - ETA is hidden when a bar is finished
